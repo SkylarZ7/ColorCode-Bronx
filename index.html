@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>NYC Building Hue Map – Multi-Select Filter</title>
+  <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
+  <style>
+    body { margin: 0; padding: 0; }
+    #map { position: absolute; top: 0; bottom: 0; width: 100%; }
+    #filters {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 1;
+      background: white;
+      padding: 12px;
+      border-radius: 6px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      font-family: sans-serif;
+      font-size: 14px;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    .checkbox-group {
+      margin-top: 8px;
+    }
+    .checkbox-group label {
+      display: block;
+      margin-bottom: 4px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+<div id="filters">
+  <strong>Filter by:</strong><br/>
+  <label for="field-select">Category:</label><br/>
+  <select id="field-select">
+    <option value="BldgClass">🏠 Building Class</option>
+    <option value="LandUse">🌐 Land Use</option>
+    <option value="ZoneDist1">📍 Zoning Code</option>
+  </select>
+  <div id="checkbox-container" class="checkbox-group"></div>
+</div>
+
+<div id="map"></div>
+
+<script src="config.js"></script>
+<script>
+mapboxgl.accessToken = MAPBOX_TOKEN;
+
+const map = new mapboxgl.Map({
+  container: 'map',
+  style: 'mapbox://styles/mapbox/light-v10',
+  center: [-73.87, 40.86],
+  zoom: 13
+});
+
+const readableMap = {
+  BldgClass: {
+    A1: "One-Family Dwelling (Brick)", A2: "One-Family Dwelling (Frame)", A3: "One-Family Dwelling (Old Law)",
+    B1: "Two-Family Dwelling (Brick)", B2: "Two-Family Dwelling (Frame)", B3: "Two-Family Dwelling (Old Law)",
+    C0: "Walk-Up Apartments (Old Law)", C1: "Walk-Up Apartments (Pre-War)", C2: "Walk-Up Apartments (Post-War)",
+    D1: "Elevator Apartments", D3: "Fireproof Elevator Buildings", K1: "Store Buildings", R1: "Condo (Residential)", R2: "Condo (Walk-Up)"
+  },
+  LandUse: {
+    1: "One & Two Family Buildings", 2: "Multifamily Walk-Up", 3: "Multifamily Elevator", 4: "Commercial & Office",
+    5: "Industrial & Manufacturing", 6: "Transportation & Utility", 7: "Public Facilities & Institutions",
+    8: "Recreation & Entertainment", 9: "Vacant Land", 10: "Mixed Residential & Commercial", 11: "Other"
+  },
+  ZoneDist1: {
+  // 🏘️ Residential
+  "R3A": "Residential R3A",
+  "R6": "Residential R6",
+  "R6A": "Residential R6A",
+  "R7-1": "Residential R7-1",
+  "R7A": "Residential R7A",
+  "R8": "Residential R8",
+  "R8A": "Residential R8A",
+  "R9A": "Residential R9A",
+
+  // 🏢 Commercial
+  "C4-4": "Commercial C4-4",
+  "C4-4D": "Commercial C4-4D",
+  "C4-5X": "Commercial C4-5X",
+  "C4-6": "Commercial C4-6",
+  "C6-2": "Commercial C6-2",
+  "C6-2A": "Commercial C6-2A",
+  "C6-3D": "Commercial C6-3D",
+  "C8-1": "Commercial C8-1",
+
+  // 🏭 Manufacturing
+  "M1-1": "Manufacturing M1-1",
+  "M1-2": "Manufacturing M1-2",
+  "M1-5": "Manufacturing M1-5",
+
+  // 🌳 Park
+  "PARK": "Public Park"
+}
+
+};
+
+const uniqueValues = {
+  BldgClass: Object.keys(readableMap.BldgClass),
+  LandUse: Object.keys(readableMap.LandUse),
+  ZoneDist1: Object.keys(readableMap.ZoneDist1)
+};
+
+const fieldSelect = document.getElementById('field-select');
+const checkboxContainer = document.getElementById('checkbox-container');
+
+function getReadable(field, value) {
+  if (!value) return "N/A";
+  return readableMap[field]?.[value] || value;
+}
+
+function updateCheckboxes() {
+  const field = fieldSelect.value;
+  const values = uniqueValues[field];
+  checkboxContainer.innerHTML = '';
+
+  values.forEach(val => {
+    const label = document.createElement('label');
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.value = val;
+    checkbox.addEventListener('change', applyFilter);
+    label.appendChild(checkbox);
+    label.appendChild(document.createTextNode(' ' + getReadable(field, val)));
+    checkboxContainer.appendChild(label);
+  });
+}
+
+function applyFilter() {
+  const field = fieldSelect.value;
+  const selected = Array.from(checkboxContainer.querySelectorAll('input:checked')).map(c => c.value);
+  if (selected.length > 0) {
+    const typed = field === "LandUse" ? selected.map(Number) : selected;
+    map.setFilter('mean-hue-layer', ['in', ['get', field], ['literal', typed]]);
+  } else {
+    map.setFilter('mean-hue-layer', null);
+  }
+}
+
+fieldSelect.addEventListener('change', () => {
+  updateCheckboxes();
+  map.setFilter('mean-hue-layer', null);
+});
+
+map.on('load', () => {
+  map.addSource('mean-hue-source', {
+    type: 'vector',
+    url: 'mapbox://skylar7.dyax44eo'
+  });
+
+  map.addLayer({
+    id: 'mean-hue-layer',
+    type: 'fill',
+    source: 'mean-hue-source',
+    'source-layer': 'map_data_hex-bcbic6',
+    paint: {
+      'fill-color': ['get', 'color_hex'],
+      'fill-opacity': 0.7
+    }
+  });
+
+  map.addLayer({
+    id: 'outline',
+    type: 'line',
+    source: 'mean-hue-source',
+    'source-layer': 'map_data_hex-bcbic6',
+    paint: {
+      'line-color': '#444',
+      'line-width': 0.3
+    }
+  });
+
+  const popup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false });
+
+  map.on('mousemove', 'mean-hue-layer', (e) => {
+    const p = e.features[0].properties;
+    popup.setLngLat(e.lngLat)
+      .setHTML(`
+        <strong>Hue:</strong> ${parseFloat(p.mean_hue).toFixed(2)}°<br>
+        <strong>Hex:</strong> ${p.color_hex}<br>
+        <strong>Building Class:</strong> ${getReadable("BldgClass", p.BldgClass)}<br>
+        <strong>Land Use:</strong> ${getReadable("LandUse", p.LandUse)}<br>
+        <strong>Zoning:</strong> ${getReadable("ZoneDist1", p.ZoneDist1)}
+      `)
+      .addTo(map);
+  });
+
+  map.on('mouseleave', 'mean-hue-layer', () => {
+    popup.remove();
+  });
+
+  updateCheckboxes();
+});
+</script>
+
+</body>
+</html>
